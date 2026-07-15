@@ -333,6 +333,7 @@ class AIEnhancementService: ObservableObject {
             return .notConfigured
         case .httpError(let statusCode, let message):
             if statusCode == 429 { return .rateLimitExceeded }
+            if statusCode == 404 { return .modelNotFound(message) }
             if (500...599).contains(statusCode) { return .serverError }
             return .customError("HTTP \(statusCode): \(message)")
         case .noResultReturned:
@@ -528,6 +529,7 @@ enum EnhancementError: Error {
     case networkError
     case serverError
     case rateLimitExceeded
+    case modelNotFound(String)
     case timeout
     case customError(String)
 }
@@ -547,6 +549,8 @@ extension EnhancementError: LocalizedError {
             return String(localized: "The AI provider's server encountered an error. Please try again later.")
         case .rateLimitExceeded:
             return String(localized: "Rate limit exceeded. Please try again later.")
+        case .modelNotFound(let message):
+            return String(localized: "AI model not found (HTTP 404): \(message)")
         case .timeout:
             return String(
                 localized: "Enhancement request timed out. Check your connection or increase the timeout duration.")

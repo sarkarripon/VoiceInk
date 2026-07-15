@@ -15,7 +15,7 @@ enum EnhancementFailover {
     static func isTransient(_ error: Error) -> Bool {
         if let enhancementError = error as? EnhancementError {
             switch enhancementError {
-            case .networkError, .serverError, .rateLimitExceeded, .timeout:
+            case .networkError, .serverError, .rateLimitExceeded, .timeout, .modelNotFound:
                 return true
             default:
                 return false

@@ -47,6 +47,16 @@ struct EnhancementFailoverTests {
         #expect(!EnhancementFailover.isTransient(EnhancementError.customError("HTTP 401: unauthorized")))
     }
 
+    @Test func modelNotFoundAdvancesToNextModel() {
+        #expect(EnhancementFailover.isTransient(EnhancementError.modelNotFound("no such model")))
+    }
+
+    @Test func modelNotFoundNeverRetriesCycle() {
+        #expect(
+            !EnhancementFailover.shouldRetryCycle(
+                after: EnhancementError.modelNotFound("no such model"), retryOnTimeout: true))
+    }
+
     @Test func urlConnectionErrorsAreTransient() {
         let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
         #expect(EnhancementFailover.isTransient(error))
