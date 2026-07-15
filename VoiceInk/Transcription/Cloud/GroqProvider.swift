@@ -8,29 +8,27 @@ struct GroqProvider: CloudProvider {
     let languageCodes: [String]? = nil
     let includesAutoDetect: Bool = false
 
+    /// Model IDs come from the Groq API (cached by GroqModelCatalog);
+    /// the fallback list is only used before the first successful fetch.
     var models: [CloudModel] {
-        [
-            CloudModel(
-                name: "whisper-large-v3-turbo",
-                displayName: "Whisper Large v3 Turbo",
-                description: "Whisper Large v3 Turbo model with Groq's lightning-speed inference",
+        let modelIDs = GroqModelCatalog.shared.cachedModelIDs ?? fallbackModelIDs
+        return modelIDs.map { modelID in
+            let isMultilingual = GroqModelCatalog.isMultilingual(modelID: modelID)
+            return CloudModel(
+                name: modelID,
+                displayName: GroqModelCatalog.displayName(forModelID: modelID),
+                description: "\(GroqModelCatalog.displayName(forModelID: modelID)) model with Groq's lightning-speed inference",
                 provider: .groq,
                 speed: 0.65,
                 accuracy: 0.95,
-                isMultilingual: true,
-                supportedLanguages: LanguageDictionary.forProvider(isMultilingual: true, provider: .groq)
-            ),
-            CloudModel(
-                name: "whisper-large-v3",
-                displayName: "Whisper Large v3",
-                description: "Whisper Large v3 model with Groq's lightning-speed inference",
-                provider: .groq,
-                speed: 0.55,
-                accuracy: 0.96,
-                isMultilingual: true,
-                supportedLanguages: LanguageDictionary.forProvider(isMultilingual: true, provider: .groq)
+                isMultilingual: isMultilingual,
+                supportedLanguages: LanguageDictionary.forProvider(isMultilingual: isMultilingual, provider: .groq)
             )
-        ]
+        }
+    }
+
+    private var fallbackModelIDs: [String] {
+        ["whisper-large-v3-turbo", "whisper-large-v3"]
     }
 
     func transcribe(

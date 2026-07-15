@@ -3,10 +3,13 @@ import Foundation
 enum TranscriptionModelRegistry {
 
     static var models: [any TranscriptionModel] {
-        return predefinedModels + CustomCloudModelManager.shared.customModels
+        // Cloud models are computed on every access because provider model lists
+        // can change at runtime (fetched from the provider APIs).
+        let cloudModels: [any TranscriptionModel] = CloudProviderRegistry.allProviders.flatMap { $0.models }
+        return nonCloudModels + cloudModels + CustomCloudModelManager.shared.customModels
     }
 
-    private static let predefinedModels: [any TranscriptionModel] = {
+    private static let nonCloudModels: [any TranscriptionModel] = {
         let nonCloudModels: [any TranscriptionModel] = [
             // Native Apple Model
             NativeAppleModel(
@@ -157,7 +160,6 @@ enum TranscriptionModelRegistry {
             ),
         ]
 
-        let cloudModels: [any TranscriptionModel] = CloudProviderRegistry.allProviders.flatMap { $0.models }
-        return nonCloudModels + cloudModels
+        return nonCloudModels
     }()
 }

@@ -207,6 +207,10 @@ class AIService: ObservableObject {
                     }
                 }
             }
+            let provider = selectedProvider
+            Task { [weak self] in
+                await self?.refreshDynamicModels(for: provider)
+            }
             NotificationCenter.default.post(name: .AppSettingsDidChange, object: nil)
         }
     }
@@ -218,7 +222,9 @@ class AIService: ObservableObject {
     private var apiKeyChangeObserver: NSObjectProtocol?
 
     @Published private var openRouterModels: [String] = []
+    @Published private var dynamicModels: [AIProvider: [String]] = [:]
     @Published private(set) var isOllamaRefreshing = false
+    private var dynamicModelRefreshesInFlight: Set<AIProvider> = []
 
     var connectedProviders: [AIProvider] {
         AIProvider.allCases.filter { provider in
@@ -280,6 +286,9 @@ class AIService: ObservableObject {
         } else if provider == .custom {
             return CustomAIProviderManager.shared.availableModelNames
         }
+        if let fetched = dynamicModels[provider], !fetched.isEmpty {
+            return fetched
+        }
         return provider.availableModels
     }
 
@@ -307,6 +316,11 @@ class AIService: ObservableObject {
 
         loadSavedModelSelections()
         loadSavedOpenRouterModels()
+        loadSavedDynamicModels()
+
+        Task { [weak self] in
+            await self?.refreshAllDynamicModels()
+        }
 
         apiKeyChangeObserver = NotificationCenter.default.addObserver(
             forName: .aiProviderKeyChanged,
@@ -369,6 +383,51 @@ class AIService: ObservableObject {
         userDefaults.set(openRouterModels, forKey: "openRouterModels")
     }
 
+    private func loadSavedDynamicModels() {
+        guard let saved = userDefaults.dictionary(forKey: "dynamicProviderModels") as? [String: [String]] else {
+            return
+        }
+        for (rawValue, models) in saved {
+            if let provider = AIProvider(rawValue: rawValue) {
+                dynamicModels[provider] = models
+            }
+        }
+    }
+
+    private func saveDynamicModels() {
+        let dictionary = Dictionary(
+            uniqueKeysWithValues: dynamicModels.map { ($0.key.rawValue, $0.value) })
+        userDefaults.set(dictionary, forKey: "dynamicProviderModels")
+    }
+
+    /// Fetches the live model list for a provider and caches it. Falls back to
+    /// the hardcoded list when there's no API key or the request fails.
+    @MainActor
+    func refreshDynamicModels(for provider: AIProvider) async {
+        guard ProviderModelsFetcher.supportedProviders.contains(provider),
+            let key = APIKeyManager.shared.getAPIKey(forProvider: provider.rawValue),
+            !key.isEmpty,
+            !dynamicModelRefreshesInFlight.contains(provider)
+        else { return }
+
+        dynamicModelRefreshesInFlight.insert(provider)
+        defer { dynamicModelRefreshesInFlight.remove(provider) }
+
+        guard let models = try? await ProviderModelsFetcher.fetchModels(for: provider, apiKey: key),
+            !models.isEmpty
+        else { return }
+
+        dynamicModels[provider] = models
+        saveDynamicModels()
+        NotificationCenter.default.post(name: .AppSettingsDidChange, object: nil)
+    }
+
+    func refreshAllDynamicModels() async {
+        for provider in ProviderModelsFetcher.supportedProviders {
+            await refreshDynamicModels(for: provider)
+        }
+    }
+
     func selectModel(_ model: String) {
         selectModel(model, for: selectedProvider)
     }
@@ -408,6 +467,10 @@ class AIService: ObservableObject {
                     self.isAPIKeyValid = true
                     APIKeyManager.shared.saveAPIKey(key, forProvider: self.selectedProvider.rawValue)
                     NotificationCenter.default.post(name: .aiProviderKeyChanged, object: nil)
+                    let provider = self.selectedProvider
+                    Task { [weak self] in
+                        await self?.refreshDynamicModels(for: provider)
+                    }
                 } else {
                     self.isAPIKeyValid = false
                 }

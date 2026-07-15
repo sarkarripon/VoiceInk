@@ -163,6 +163,29 @@ struct ModeConfigFormView: View {
         .modeValidationAlert(errors: validationErrors, isPresented: $showValidationAlert)
     }
 
+    private var groupedTranscriptionModels: [(provider: ModelProvider, models: [any TranscriptionModel])] {
+        var order: [ModelProvider] = []
+        var groups: [ModelProvider: [any TranscriptionModel]] = [:]
+        for model in warmupSnapshot.usableTranscriptionModels {
+            if groups[model.provider] == nil { order.append(model.provider) }
+            groups[model.provider, default: []].append(model)
+        }
+        return order.map { (provider: $0, models: groups[$0] ?? []) }
+    }
+
+    private func transcriptionModels(for provider: ModelProvider?) -> [any TranscriptionModel] {
+        guard let provider else { return [] }
+        return groupedTranscriptionModels.first { $0.provider == provider }?.models ?? []
+    }
+
+    private func providerDisplayName(for provider: ModelProvider) -> String {
+        switch provider {
+        case .whisper: return String(localized: "Local Whisper")
+        case .fluidAudio: return String(localized: "Local Parakeet")
+        default: return provider.rawValue
+        }
+    }
+
     private var transcriptionSection: some View {
         Section("Transcription") {
             if warmupSnapshot.usableTranscriptionModels.isEmpty {
@@ -171,13 +194,30 @@ struct ModeConfigFormView: View {
                 )
                 .foregroundColor(.secondary)
             } else {
+                let selectedProvider = selectedTranscriptionModel?.provider ?? groupedTranscriptionModels.first?.provider
+                let providerBinding = Binding<ModelProvider?>(
+                    get: { selectedProvider },
+                    set: { newProvider in
+                        guard let newProvider, newProvider != selectedProvider else { return }
+                        draft.selectedTranscriptionModelName =
+                            groupedTranscriptionModels
+                            .first { $0.provider == newProvider }?
+                            .models.first?.name
+                    }
+                )
                 let modelBinding = Binding<String?>(
                     get: { draft.selectedTranscriptionModelName },
                     set: { draft.selectedTranscriptionModelName = $0 }
                 )
 
+                Picker("Provider", selection: providerBinding) {
+                    ForEach(groupedTranscriptionModels, id: \.provider) { group in
+                        Text(providerDisplayName(for: group.provider)).tag(group.provider as ModelProvider?)
+                    }
+                }
+
                 Picker("Model", selection: modelBinding) {
-                    ForEach(warmupSnapshot.usableTranscriptionModels, id: \.name) { model in
+                    ForEach(transcriptionModels(for: selectedProvider), id: \.name) { model in
                         Text(model.displayName).tag(model.name as String?)
                     }
                 }
@@ -413,6 +453,11 @@ struct ModeConfigFormView: View {
                 if provider == .openRouter {
                     Button("Refresh Models") {
                         Task { await aiService.fetchOpenRouterModels() }
+                    }
+                    .help("Refresh models")
+                } else if ProviderModelsFetcher.supportedProviders.contains(provider) {
+                    Button("Refresh Models") {
+                        Task { await aiService.refreshDynamicModels(for: provider) }
                     }
                     .help("Refresh models")
                 }

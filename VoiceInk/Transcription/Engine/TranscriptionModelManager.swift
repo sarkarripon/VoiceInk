@@ -7,6 +7,10 @@ class TranscriptionModelManager: ObservableObject {
     @Published var currentTranscriptionModel: (any TranscriptionModel)?
     @Published var allAvailableModels: [any TranscriptionModel] = TranscriptionModelRegistry.models
 
+    /// Apple Speech counts as "connected" only after the user has downloaded
+    /// at least one language asset (reserved locale) for it.
+    @Published private(set) var isNativeAppleSpeechConfigured = false
+
     private weak var whisperModelManager: WhisperModelManager?
     private weak var fluidAudioModelManager: FluidAudioModelManager?
 
@@ -31,6 +35,53 @@ class TranscriptionModelManager: ObservableObject {
         fluidAudioModelManager.onModelsChanged = { [weak self] in
             self?.refreshAllAvailableModels()
         }
+
+        // Cloud provider model lists are fetched from the provider APIs.
+        NotificationCenter.default.addObserver(
+            forName: .cloudModelsDidRefresh,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.refreshAllAvailableModels()
+            }
+        }
+
+        // Re-fetch cloud model lists when a provider API key is added or changed.
+        NotificationCenter.default.addObserver(
+            forName: .aiProviderKeyChanged,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task {
+                await GroqModelCatalog.shared.refresh()
+            }
+        }
+
+        // Apple Speech asset state changes outside this manager (downloads in
+        // settings/language views), so re-check whenever app settings change.
+        NotificationCenter.default.addObserver(
+            forName: .AppSettingsDidChange,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                await self?.refreshNativeAppleSpeechConfiguration()
+            }
+        }
+
+        Task {
+            await GroqModelCatalog.shared.refresh()
+            await refreshNativeAppleSpeechConfiguration()
+        }
+    }
+
+    func refreshNativeAppleSpeechConfiguration() async {
+        let reservedLocales = await NativeAppleSpeechAssetManager.reservedLocaleIdentifiers()
+        let isConfigured = !reservedLocales.isEmpty
+        if isNativeAppleSpeechConfigured != isConfigured {
+            isNativeAppleSpeechConfigured = isConfigured
+        }
     }
 
     // MARK: - Computed: usable models
@@ -43,7 +94,7 @@ class TranscriptionModelManager: ObservableObject {
             case .fluidAudio:
                 return fluidAudioModelManager?.isFluidAudioModelDownloaded(named: model.name) ?? false
             case .nativeApple:
-                if #available(macOS 26, *) { return true } else { return false }
+                if #available(macOS 26, *) { return isNativeAppleSpeechConfigured } else { return false }
             case .custom:
                 return true
             default:
