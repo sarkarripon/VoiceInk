@@ -357,72 +357,66 @@ class AIEnhancementService: ObservableObject {
         maxRetries: Int = 3,
         initialDelay: TimeInterval = 1.0
     ) async throws -> String {
-        var retries = 0
+        let candidates = EnhancementFailover.candidateModels(
+            primary: configuration.modelName,
+            fallbacks: configuration.modelFallbacks
+        )
         var currentDelay = initialDelay
+        var lastError: Error = EnhancementError.enhancementFailed
 
-        while retries < maxRetries {
-            do {
-                return try await makeRequest(
-                    text: text,
-                    configuration: configuration,
-                    contextSnapshot: contextSnapshot
+        for cycle in 1...maxRetries {
+            for (index, candidate) in candidates.enumerated() {
+                let attemptConfiguration =
+                    index == 0
+                    ? configuration
+                    : candidate.map { configuration.replacingModel($0) } ?? configuration
+                do {
+                    let result = try await makeRequest(
+                        text: text,
+                        configuration: attemptConfiguration,
+                        contextSnapshot: contextSnapshot
+                    )
+                    if index > 0 {
+                        logger.notice(
+                            "Enhancement succeeded with fallback model \(candidate ?? "default", privacy: .public)")
+                    }
+                    return result
+                } catch {
+                    guard EnhancementFailover.isTransient(error) else { throw error }
+                    lastError = error
+                    if index < candidates.count - 1 {
+                        logger.warning(
+                            "Model \(candidate ?? "default", privacy: .public) failed (\(error.localizedDescription, privacy: .public)), failing over to next model"
+                        )
+                    }
+                }
+            }
+
+            if !(lastError is EnhancementError) {
+                lastError = EnhancementError.networkError
+            }
+
+            guard cycle < maxRetries,
+                EnhancementFailover.shouldRetryCycle(after: lastError, retryOnTimeout: retryOnTimeout)
+            else { break }
+
+            if case EnhancementError.timeout = lastError {
+                logger.warning(
+                    "All models timed out, retrying immediately... (Attempt \(cycle, privacy: .public)/\(maxRetries, privacy: .public))"
                 )
-            } catch let error as EnhancementError {
-                switch error {
-                case .networkError, .serverError, .rateLimitExceeded:
-                    retries += 1
-                    if retries < maxRetries {
-                        logger.warning(
-                            "Request failed, retrying in \(currentDelay, privacy: .public)s... (Attempt \(retries, privacy: .public)/\(maxRetries, privacy: .public))"
-                        )
-                        try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
-                        currentDelay *= 2
-                    } else {
-                        logger.error("Request failed after \(maxRetries, privacy: .public) retries.")
-                        throw error
-                    }
-                case .timeout:
-                    if retryOnTimeout {
-                        retries += 1
-                        if retries < maxRetries {
-                            logger.warning(
-                                "Request timed out, retrying immediately... (Attempt \(retries, privacy: .public)/\(maxRetries, privacy: .public))"
-                            )
-                        } else {
-                            logger.error("Request timed out after \(maxRetries, privacy: .public) retries.")
-                            throw error
-                        }
-                    } else {
-                        logger.error("Request timed out, failing immediately (retry disabled).")
-                        throw error
-                    }
-                default:
-                    throw error
-                }
-            } catch {
-                let nsError = error as NSError
-                if nsError.domain == NSURLErrorDomain
-                    && [NSURLErrorNotConnectedToInternet, NSURLErrorTimedOut, NSURLErrorNetworkConnectionLost].contains(
-                        nsError.code)
-                {
-                    retries += 1
-                    if retries < maxRetries {
-                        logger.warning(
-                            "Request failed with network error, retrying in \(currentDelay, privacy: .public)s... (Attempt \(retries, privacy: .public)/\(maxRetries, privacy: .public))"
-                        )
-                        try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
-                        currentDelay *= 2
-                    } else {
-                        logger.error("Request failed after \(maxRetries, privacy: .public) retries with network error.")
-                        throw EnhancementError.networkError
-                    }
-                } else {
-                    throw error
-                }
+            } else {
+                logger.warning(
+                    "All models failed, retrying in \(currentDelay, privacy: .public)s... (Attempt \(cycle, privacy: .public)/\(maxRetries, privacy: .public))"
+                )
+                try await Task.sleep(nanoseconds: UInt64(currentDelay * 1_000_000_000))
+                currentDelay *= 2
             }
         }
 
-        throw EnhancementError.enhancementFailed
+        logger.error(
+            "Enhancement failed after trying \(candidates.count, privacy: .public) model(s) over \(maxRetries, privacy: .public) attempt cycles."
+        )
+        throw lastError
     }
 
     func enhance(

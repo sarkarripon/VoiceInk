@@ -19,6 +19,7 @@ struct ModeConfigDraft {
     var useScreenCapture: Bool
     var selectedAIProvider: String?
     var selectedAIModel: String?
+    var aiModelFallbacks: [String]
     var outputMode: ModeOutputMode
     var autoSendKey: AutoSendKey
     var customCommand: String
@@ -50,6 +51,7 @@ struct ModeConfigDraft {
             useScreenCapture = true
             selectedAIProvider = inheritedConfig?.selectedAIProvider
             selectedAIModel = inheritedConfig?.selectedAIModel
+            aiModelFallbacks = inheritedConfig?.aiModelFallbacks ?? []
             outputMode = .paste
             autoSendKey = .none
             customCommand = inheritedConfig?.customCommand?.command ?? ""
@@ -77,6 +79,7 @@ struct ModeConfigDraft {
             useScreenCapture = latestConfig.useScreenCapture
             selectedAIProvider = latestConfig.selectedAIProvider
             selectedAIModel = latestConfig.selectedAIModel
+            aiModelFallbacks = latestConfig.aiModelFallbacks ?? []
             outputMode = latestConfig.outputMode
             autoSendKey = latestConfig.autoSendKey
             customCommand = latestConfig.customCommand?.command ?? ""
@@ -99,8 +102,12 @@ struct ModeConfigDraft {
             } ?? connectedProviders.first
 
         selectedAIProvider = provider?.rawValue
+        if provider != inheritedProvider {
+            aiModelFallbacks = []
+        }
         guard let provider, provider != .localCLI else {
             selectedAIModel = nil
+            aiModelFallbacks = []
             return
         }
 
@@ -185,6 +192,7 @@ struct ModeConfigDraft {
                 isTextFormattingEnabled: isTextFormattingEnabled,
                 selectedAIProvider: selectedAIProvider,
                 selectedAIModel: selectedAIModel,
+                aiModelFallbacks: aiModelFallbacks.isEmpty ? nil : aiModelFallbacks,
                 outputMode: outputMode,
                 autoSendKey: savedAutoSendKey,
                 customCommand: savedCustomCommand,
@@ -210,6 +218,7 @@ struct ModeConfigDraft {
             updatedConfig.useScreenCapture = useScreenCapture
             updatedConfig.selectedAIProvider = selectedAIProvider
             updatedConfig.selectedAIModel = selectedAIModel
+            updatedConfig.aiModelFallbacks = aiModelFallbacks.isEmpty ? nil : aiModelFallbacks
             updatedConfig.outputMode = outputMode
             updatedConfig.autoSendKey = savedAutoSendKey
             updatedConfig.customCommand = savedCustomCommand

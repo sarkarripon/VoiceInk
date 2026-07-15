@@ -387,6 +387,7 @@ struct ModeConfigFormView: View {
                         }
                     }
                     .onChange(of: draft.selectedAIProvider) { _, newValue in
+                        draft.aiModelFallbacks = []
                         if let provider = newValue.flatMap({ AIProvider(rawValue: $0) }) {
                             switch provider {
                             case .localCLI:
@@ -405,6 +406,7 @@ struct ModeConfigFormView: View {
 
                 if let provider = configuredSelectedAIProvider {
                     aiModelPicker(for: provider)
+                    aiFallbackModelsPicker(for: provider)
                     promptPicker
                     contextAwarenessRow
                 }
@@ -421,6 +423,7 @@ struct ModeConfigFormView: View {
             }
             .onAppear {
                 draft.selectedAIModel = nil
+                draft.aiModelFallbacks = []
             }
         } else {
             let models = aiModelOptions(for: provider)
@@ -441,6 +444,7 @@ struct ModeConfigFormView: View {
                     },
                     set: { newModelValue in
                         draft.selectedAIModel = newModelValue
+                        draft.aiModelFallbacks.removeAll { $0 == newModelValue }
                     }
                 )
 
@@ -463,6 +467,53 @@ struct ModeConfigFormView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func aiFallbackModelsPicker(for provider: AIProvider) -> some View {
+        if provider != .localCLI {
+            let primaryModel = effectivePrimaryModel(for: provider)
+            let selectableModels = aiModelOptions(for: provider).filter {
+                $0 != primaryModel && !draft.aiModelFallbacks.contains($0)
+            }
+
+            LabeledContent("Fallback Models") {
+                Menu {
+                    ForEach(selectableModels, id: \.self) { model in
+                        Button(model) {
+                            draft.aiModelFallbacks.append(model)
+                        }
+                    }
+                } label: {
+                    Label("Add", systemImage: "plus.circle")
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize()
+                .disabled(selectableModels.isEmpty)
+            }
+            .help("Models tried in order when the primary model is rate limited or fails")
+
+            ForEach(Array(draft.aiModelFallbacks.enumerated()), id: \.element) { index, model in
+                HStack {
+                    Text("\(index + 1). \(model)")
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    Button {
+                        draft.aiModelFallbacks.removeAll { $0 == model }
+                    } label: {
+                        Image(systemName: "minus.circle.fill")
+                            .foregroundColor(.secondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove fallback model")
+                }
+            }
+        }
+    }
+
+    private func effectivePrimaryModel(for provider: AIProvider) -> String {
+        if let model = draft.selectedAIModel, !model.isEmpty { return model }
+        return warmupSnapshot.selectedModel(for: provider)
     }
 
     private func aiModelOptions(for provider: AIProvider) -> [String] {

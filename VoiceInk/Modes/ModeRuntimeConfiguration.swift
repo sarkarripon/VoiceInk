@@ -32,9 +32,26 @@ struct EnhancementRuntimeConfiguration {
     let prompt: CustomPrompt?
     let provider: AIProvider?
     let modelName: String?
+    let modelFallbacks: [String]
     let useClipboardContext: Bool
     let useSelectedTextContext: Bool
     let useScreenCaptureContext: Bool
+
+    init(
+        mode: ModeConfig?, isEnabled: Bool, prompt: CustomPrompt?, provider: AIProvider?,
+        modelName: String?, modelFallbacks: [String] = [], useClipboardContext: Bool,
+        useSelectedTextContext: Bool, useScreenCaptureContext: Bool
+    ) {
+        self.mode = mode
+        self.isEnabled = isEnabled
+        self.prompt = prompt
+        self.provider = provider
+        self.modelName = modelName
+        self.modelFallbacks = modelFallbacks
+        self.useClipboardContext = useClipboardContext
+        self.useSelectedTextContext = useSelectedTextContext
+        self.useScreenCaptureContext = useScreenCaptureContext
+    }
 
     func replacingPrompt(_ prompt: CustomPrompt) -> EnhancementRuntimeConfiguration {
         EnhancementRuntimeConfiguration(
@@ -43,6 +60,21 @@ struct EnhancementRuntimeConfiguration {
             prompt: prompt,
             provider: provider,
             modelName: modelName,
+            modelFallbacks: modelFallbacks,
+            useClipboardContext: useClipboardContext,
+            useSelectedTextContext: useSelectedTextContext,
+            useScreenCaptureContext: useScreenCaptureContext
+        )
+    }
+
+    func replacingModel(_ modelName: String) -> EnhancementRuntimeConfiguration {
+        EnhancementRuntimeConfiguration(
+            mode: mode,
+            isEnabled: isEnabled,
+            prompt: prompt,
+            provider: provider,
+            modelName: modelName,
+            modelFallbacks: modelFallbacks,
             useClipboardContext: useClipboardContext,
             useSelectedTextContext: useSelectedTextContext,
             useScreenCaptureContext: useScreenCaptureContext
@@ -115,6 +147,12 @@ enum ModeRuntimeResolver {
             configuredModelName: mode?.selectedAIModel,
             aiService: aiService
         )
+        let modelFallbacks = resolvedEnhancementModelFallbacks(
+            provider: provider,
+            configuredFallbacks: mode?.aiModelFallbacks,
+            primaryModelName: modelName,
+            aiService: aiService
+        )
 
         return EnhancementRuntimeConfiguration(
             mode: mode,
@@ -122,6 +160,7 @@ enum ModeRuntimeResolver {
             prompt: prompt,
             provider: provider,
             modelName: modelName,
+            modelFallbacks: modelFallbacks,
             useClipboardContext: mode?.useClipboardContext ?? false,
             useSelectedTextContext: mode?.useSelectedTextContext ?? true,
             useScreenCaptureContext: mode?.useScreenCapture ?? false
@@ -203,5 +242,25 @@ enum ModeRuntimeResolver {
         }
 
         return provider.defaultModel
+    }
+
+    private static func resolvedEnhancementModelFallbacks(
+        provider: AIProvider?,
+        configuredFallbacks: [String]?,
+        primaryModelName: String?,
+        aiService: AIService
+    ) -> [String] {
+        guard let provider, provider != .localCLI,
+            let configuredFallbacks, !configuredFallbacks.isEmpty
+        else { return [] }
+
+        let models = aiService.availableModels(for: provider)
+        var seen = Set<String>()
+        return configuredFallbacks.filter { model in
+            !model.isEmpty
+                && model != primaryModelName
+                && (models.isEmpty || models.contains(model))
+                && seen.insert(model).inserted
+        }
     }
 }
