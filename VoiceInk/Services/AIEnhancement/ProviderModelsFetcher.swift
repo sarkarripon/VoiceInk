@@ -70,10 +70,7 @@ enum ProviderModelsFetcher {
 
         let response = try JSONDecoder().decode(Response.self, from: data)
         let models = (response.models ?? [])
-            .filter { model in
-                model.name.contains("gemini")
-                    && (model.supportedGenerationMethods ?? []).contains("generateContent")
-            }
+            .filter { ($0.supportedGenerationMethods ?? []).contains("generateContent") }
             .map { $0.name.replacingOccurrences(of: "models/", with: "") }
 
         return models.sorted(by: >)
